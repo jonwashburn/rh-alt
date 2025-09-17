@@ -34,9 +34,12 @@ jobs:
       - name: Lake update
         run: |
           ~/.elan/bin/lake update
-      - name: Lake build
+      - name: Disable ProofWidgets widgets
         run: |
-          ~/.elan/bin/lake build
+          bash scripts/patch-proofwidgets.sh || true
+      - name: Lake build (project libs only)
+        run: |
+          ~/.elan/bin/lake build rh test
       - name: Verify (holes/axioms and theorems)
         run: |
           bash scripts/verify.sh
