@@ -4,6 +4,10 @@ set -euo pipefail
 echo "==> Updating deps"
 lake update
 
+# Neutralize ProofWidgets JS build if present
+echo "==> Patching ProofWidgets (disable widgets)"
+bash scripts/patch-proofwidgets.sh || true
+
 echo "==> Building"
 lake build rh test
 

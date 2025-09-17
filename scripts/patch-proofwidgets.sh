@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Disable ProofWidgets JS build by clearing extraDepTargets in its lakefile
 PW_LAKEFILE=".lake/packages/proofwidgets/lakefile.lean"
 if [[ -f "$PW_LAKEFILE" ]]; then
-  # Backup once per run
   cp -f "$PW_LAKEFILE" "$PW_LAKEFILE.bak" || true
-  # Replace extraDepTargets := #[``widgetJsAll] with extraDepTargets := #[]
-  sed -E -i '' 's/extraDepTargets\s*:=\s*#\[``widgetJsAll\]/extraDepTargets := #[]/g' "$PW_LAKEFILE" || true
-  sed -E -i '' 's/extraDepTargets\s*:=\s*#\[``widgetJsAll\]/extraDepTargets := #[]/g' "$PW_LAKEFILE" || true
+  python3 - "$PW_LAKEFILE" << 'PY'
+import sys, re, pathlib
+p = pathlib.Path(sys.argv[1])
+s = p.read_text()
+# Clear extraDepTargets in both libs
+s = re.sub(r"extraDepTargets\s*:=\s*#\[[^\]]*\]", "extraDepTargets := #[]", s)
+# Replace widgetJsAll targets with trivial BuildJob returning empty array
+s = re.sub(r"target\s+widgetJsAll\s+pkg\s*:\s*Array FilePath\s*:=.*?(?=\n\S|\Z)",
+           "target widgetJsAll pkg : Array FilePath := do\n  let dep ← inputTextFile (\"dummy\")\n  BuildJob.collectArray #[]",
+           s, flags=re.S)
+s = re.sub(r"target\s+widgetJsAllDev\s+pkg\s*:\s*Array FilePath\s*:=.*?(?=\n\S|\Z)",
+           "target widgetJsAllDev pkg : Array FilePath := do\n  let dep ← inputTextFile (\"dummy\")\n  BuildJob.collectArray #[]",
+           s, flags=re.S)
+p.write_text(s)
+print("Patched:", p)
+PY
 fi

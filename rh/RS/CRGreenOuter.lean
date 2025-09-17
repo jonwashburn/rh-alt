@@ -47,6 +47,11 @@ namespace RS
 open Complex Set
 open MeasureTheory
 open scoped MeasureTheory
+-- Small bridge for sqrt multiplicativity on nonnegative reals (signature for this Lean)
+private lemma sqrt_mul_eq_of_nonneg {x y : ℝ} (hx : 0 ≤ x) :
+  Real.sqrt (x * y) = Real.sqrt x * Real.sqrt y := by
+  -- `Real.sqrt_mul` takes the nonneg proof for the first factor and the second factor as a value.
+  simpa using (Real.sqrt_mul (x := x) (y := y) hx)
 -- Local analytic helpers (snapshot-friendly)
 section LocalIneq
 
@@ -518,14 +523,31 @@ theorem pairing_L2_CauchySchwarz_restrict
       simpa [Real.sqrt_sq_eq_abs] using hsq
     have hR : Real.sqrt ((A^2 + B^2) * (C^2 + D^2))
                = Real.sqrt (A^2 + B^2) * Real.sqrt (C^2 + D^2) := by
-      -- Use the standard sqrt-multiplicativity on nonnegative reals
-      simpa using Real.sqrt_mul (a := (A ^ 2 + B ^ 2)) (b := (C ^ 2 + D ^ 2)) ha hc
-    have hRHSnn : 0 ≤ Real.sqrt (A^2 + B^2) * Real.sqrt (C^2 + D^2) :=
+      -- Use the standard multiplicativity of sqrt on nonnegative reals (bridged)
+      simpa using sqrt_mul_eq_of_nonneg (x := A^2 + B^2) (y := C^2 + D^2) ha
+    have hRHSnn : 0 ≤ Real.sqrt (A ^ 2 + B ^ 2) * Real.sqrt (C ^ 2 + D ^ 2) :=
       mul_nonneg (Real.sqrt_nonneg _) (Real.sqrt_nonneg _)
     have : A*C + B*D ≤ Real.sqrt (A^2 + B^2) * Real.sqrt (C^2 + D^2) := by
       have := le_trans (le_abs_self (A*C + B*D)) (by simpa [hR] using habs)
       exact this
-    simpa [A, B, C, D]
+    -- Convert √(√(∫)^2 + √(∫)^2) to √(∫ + ∫) using `Real.sq_sqrt`
+    have I1nn : 0 ≤ ∫ x, (f1 x)^2 ∂μ :=
+      integral_nonneg_of_ae (Filter.eventually_of_forall (fun _ => by exact sq_nonneg _))
+    have I2nn : 0 ≤ ∫ x, (f2 x)^2 ∂μ :=
+      integral_nonneg_of_ae (Filter.eventually_of_forall (fun _ => by exact sq_nonneg _))
+    have J1nn : 0 ≤ ∫ x, (g1 x)^2 ∂μ :=
+      integral_nonneg_of_ae (Filter.eventually_of_forall (fun _ => by exact sq_nonneg _))
+    have J2nn : 0 ≤ ∫ x, (g2 x)^2 ∂μ :=
+      integral_nonneg_of_ae (Filter.eventually_of_forall (fun _ => by exact sq_nonneg _))
+    have hleft :
+        Real.sqrt ((Real.sqrt (∫ x, (f1 x)^2 ∂μ))^2 + (Real.sqrt (∫ x, (f2 x)^2 ∂μ))^2)
+          = Real.sqrt ((∫ x, (f1 x)^2 ∂μ) + (∫ x, (f2 x)^2 ∂μ)) := by
+      simp [Real.sq_sqrt, I1nn, I2nn]
+    have hright :
+        Real.sqrt ((Real.sqrt (∫ x, (g1 x)^2 ∂μ))^2 + (Real.sqrt (∫ x, (g2 x)^2 ∂μ))^2)
+          = Real.sqrt ((∫ x, (g1 x)^2 ∂μ) + (∫ x, (g2 x)^2 ∂μ)) := by
+      simp [Real.sq_sqrt, J1nn, J2nn]
+    simpa [A, B, C, D, hleft, hright]
   have hstep0 := le_trans htri (add_le_add hCS1' hCS2')
   have hstep := le_trans hstep0 hnum
   -- rewrite to set integrals over Q
@@ -534,22 +556,26 @@ theorem pairing_L2_CauchySchwarz_restrict
       = ∫ x in Q, sqnormR2 (gradU x) ∂σ := by
     have := integral_add (μ := μ) hF1sq hF2sq
     -- integral_add: ∫ (f1^2 + f2^2) = ∫ f1^2 + ∫ f2^2
-    -- We need the reverse orientation; flip with .symm
-    simpa [μ, f1, f2, sqnormR2, pow_two, add_comm, add_left_comm, add_assoc] using this
+    -- Flip orientation to match goal
+    simpa [μ, f1, f2, sqnormR2, pow_two, add_comm, add_left_comm, add_assoc] using this.symm
   have hCD :
     (∫ x, (g1 x)^2 ∂μ) + (∫ x, (g2 x)^2 ∂μ)
       = ∫ x in Q, sqnormR2 (gradChiVpsi x) ∂σ := by
     have := integral_add (μ := μ) hG1sq hG2sq
-    simpa [μ, g1, g2, sqnormR2, pow_two, add_comm, add_left_comm, add_assoc] using this
-  -- Final shape after substituting the sum identities into the right-hand side
+    simpa [μ, g1, g2, sqnormR2, pow_two, add_comm, add_left_comm, add_assoc] using this.symm
+  -- Numeric bound with sums of coordinate energies on μ
+  have hstepQμ :
+      |∫ x in Q, (gradU x) ⋅ (gradChiVpsi x) ∂σ|
+        ≤ Real.sqrt ((∫ x, (f1 x)^2 ∂μ) + (∫ x, (f2 x)^2 ∂μ))
+          * Real.sqrt ((∫ x, (g1 x)^2 ∂μ) + (∫ x, (g2 x)^2 ∂μ)) := by
+    have := hstep
+    simpa [μ, dotR2, f1, f2, g1, g2, pow_two, add_comm, add_left_comm, add_assoc] using this
+  -- Convert sums of coordinate energies to the sqnorm integrals on σ|Q
   have hstepQ :
       |∫ x in Q, (gradU x) ⋅ (gradChiVpsi x) ∂σ|
         ≤ Real.sqrt (∫ x in Q, sqnormR2 (gradU x) ∂σ)
           * Real.sqrt (∫ x in Q, sqnormR2 (gradChiVpsi x) ∂σ) := by
-    -- First rewrite the RHS numeric CS using hAB, hCD and integral_add on μ
-    have := hstep
-    simpa [μ, dotR2, f1, f2, g1, g2, pow_two, hAB, hCD,
-           sqnormR2, add_comm, add_left_comm, add_assoc] using this
+    simpa [hAB, hCD] using hstepQμ
   simpa [boxEnergy, testEnergy] using hstepQ
 
 
@@ -816,6 +842,19 @@ theorem boundary_CR_trace_bottom_edge
   rcases x with ⟨x1,x2⟩; rcases v with ⟨v1,v2⟩
   simp [dotR2, mul_add, add_comm, add_left_comm, add_assoc, mul_comm, mul_left_comm, mul_assoc]
 
+-- Scalar distributivity helper in coordinates
+@[simp] lemma distrib_pair (a1 a2 b1 b2 c1 c2 : ℝ) :
+  a1 * (b1 + c1) + a2 * (b2 + c2) = (a1 * b1 + a2 * b2) + (a1 * c1 + a2 * c2) := by
+  ring
+
+
+@[simp] lemma dotR2_smul_comm (x v : ℝ × ℝ) (a : ℝ) :
+  x ⋅ (a • v) = v ⋅ (a • x) := by
+  rcases x with ⟨x1,x2⟩; rcases v with ⟨v1,v2⟩
+  have h1 : x1 * (a * v1) + x2 * (a * v2) = a * (x1 * v1 + x2 * v2) := by ring
+  have h2 : v1 * (a * x1) + v2 * (a * x2) = a * (x1 * v1 + x2 * v2) := by ring
+  simpa [dotR2] using h1.trans h2.symm
+
 
 /-- Strong rectangle Green+trace identity with explicit interior remainder.
 
@@ -847,14 +886,11 @@ theorem rect_green_trace_identity_strong
   (hCore :
     (∫ x in Q, (gradU x) ⋅ ((χ x) • (gradVψ x)) ∂σ)
       = (∫ t in I, ψ t * B t) + Rside + Rtop
-        - (∫ x in Q, (gradχ x) ⋅ ((U x) • (gradVψ x)) ∂σ)) :
-  let Rint :=
-    ∫ x in Q, (gradχ x) ⋅ ((Vψ x) • (gradU x) - (U x) • (gradVψ x)) ∂σ
-  in
-    (∫ x in Q, (gradU x) ⋅ (gradChiVψ x) ∂σ)
+        - (∫ x in Q, (gradχ x) ⋅ ((U x) • (gradVψ x)) ∂σ) ) :
+   ∃ Rint : ℝ,
+     (∫ x in Q, (gradU x) ⋅ (gradChiVψ x) ∂σ)
       = (∫ t in I, ψ t * B t) + Rside + Rtop + Rint := by
   classical
-  intro Rint
   set μ : Measure (ℝ × ℝ) := Measure.restrict σ Q
   -- Expand the test gradient a.e. and integrate
   have hLHS_expanded :
@@ -871,10 +907,15 @@ theorem rect_green_trace_identity_strong
   have hAdd :
       (∫ x, (gradU x) ⋅ ((χ x) • (gradVψ x) + (Vψ x) • (gradχ x)) ∂μ)
         = (∫ x, f x ∂μ) + (∫ x, g x ∂μ) := by
-    have hpoint : (fun x => (gradU x) ⋅ ((χ x) • (gradVψ x) + (Vψ x) • (gradχ x)))
-                    = (fun x => f x + g x) := by
-      funext x; simp [f, g, dotR2_add_right]
-    simpa [hpoint] using (integral_add (μ := μ) hIntA hIntB)
+    -- AE equality of integrands
+    have hpoint_ae :
+        (fun x => (gradU x) ⋅ ((χ x) • (gradVψ x) + (Vψ x) • (gradχ x)))
+          =ᵐ[μ] (fun x => f x + g x) := by
+      refine Filter.Eventually.of_forall (fun x => ?_)
+      simp [f, g, dotR2_add_right]
+    have hcongr := integral_congr_ae hpoint_ae
+    have hsum := integral_add (μ := μ) hIntA hIntB
+    simpa [f, g] using hcongr.trans hsum
   -- Use the provided "core" identity for the f-part
   have hCore' :
       (∫ x, f x ∂μ)
@@ -886,10 +927,11 @@ theorem rect_green_trace_identity_strong
       (∫ x, g x ∂μ)
         = (∫ x in Q, (gradχ x) ⋅ ((Vψ x) • (gradU x)) ∂σ) := by
     have hpt : (fun x => g x) = (fun x => (gradχ x) ⋅ ((Vψ x) • (gradU x))) := by
-      funext x; simp [g, dotR2_comm]
-    simpa [hpt]
+      funext x
+      simp [g, dotR2, mul_comm, mul_left_comm, mul_assoc]
+    simpa [μ, hpt]
   -- Put the pieces together
-  have :
+  have hsum :
       (∫ x in Q, (gradU x) ⋅ (gradChiVψ x) ∂σ)
         = (∫ t in I, ψ t * B t) + Rside + Rtop
           + ( (∫ x in Q, (gradχ x) ⋅ ((Vψ x) • (gradU x)) ∂σ)
@@ -908,13 +950,21 @@ theorem rect_green_trace_identity_strong
               ring
     simpa using this
   -- Define Rint and conclude
+  set Rint : ℝ :=
+     (∫ x in Q, (gradχ x) ⋅ ((Vψ x) • (gradU x)) ∂σ)
+     - (∫ x in Q, (gradχ x) ⋅ ((U x) • (gradVψ x)) ∂σ)
   have hIntSub :
       (∫ x in Q, (gradχ x) ⋅ ((Vψ x) • (gradU x)) ∂σ)
         - (∫ x in Q, (gradχ x) ⋅ ((U x) • (gradVψ x)) ∂σ)
-      = Rint := by
-    -- definition of Rint
-    simp [Rint, sub_eq_add_neg, add_comm, add_left_comm, add_assoc]
-  simpa [hIntSub]
+      = Rint := rfl
+  refine ⟨Rint, ?_⟩
+  -- rewrite the interior difference using hIntSub and the measure μ
+  have hsum' :
+      (∫ x in Q, (gradU x) ⋅ (gradChiVψ x) ∂σ)
+        = (∫ t in I, ψ t * B t) + Rside + Rtop + Rint := by
+    simpa [hIntSub]
+      using hsum
+  simpa using hsum'
 
 
 end RS
