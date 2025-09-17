@@ -5,7 +5,7 @@ echo "==> Updating deps"
 lake update
 
 echo "==> Building"
-lake build
+lake build rh test
 
 echo "==> Scanning for holes/axioms"
 if grep -RnE '\bsorry\b|\badmit\b|^\s*axiom\b' rh | grep -v 'no sorry' ; then
